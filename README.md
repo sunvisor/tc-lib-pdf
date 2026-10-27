@@ -25,6 +25,7 @@
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [IVS Support in This Fork](#ivs-support-in-this-fork)
 - [Examples](#examples)
 - [In-Depth Documentation](#in-depth-documentation)
 - [Contributing](#contributing)
@@ -95,6 +96,7 @@ The runnable examples in [examples/index.md](examples/index.md) cover the equiva
 - **TrueTypeUnicode**, **OpenTypeUnicode v1**, TrueType, OpenType v1, Type1, and CID-0 fonts
 - Supplementary-plane characters above U+FFFF, including mathematical alphanumeric symbols and emoji ([doc/FONTS.md](doc/FONTS.md#unicode-text-encoding))
 - Font subsetting to keep file sizes small
+- Japanese IVS glyph selection, embedding, and preservation of the original text (this fork; see [IVS support](#ivs-support-in-this-fork))
 - Text hyphenation, stretching, and letter-spacing (tracking)
 - Language-aware TeX hyphenation patterns and optional zero-width breakpoints
 - Text rendering modes: fill, stroke, and clipping
@@ -227,6 +229,64 @@ $pdf->renderPDF($rawpdf);
 `getOutPDFString()` returns the raw PDF bytes. `renderPDF()` streams those bytes to the browser; to store them in a file or send them as an attachment, keep the returned string.
 
 > **Note:** `realpath()` returns `false` when the fonts directory does not exist. A `K_PATH_FONTS` error on first run means the fonts have not been generated (see [doc/FONTS.md](doc/FONTS.md)).
+
+---
+
+## IVS Support in This Fork
+
+This fork supports Ideographic Variation Sequences (IVS) when used with the IVS-enabled `tc-lib-pdf-font` fork and a converted TrueType font with `cmap` format 14 mappings. Install both forks through Composer; installing the upstream packages alone does not include this addition.
+
+The font companion reads the variation mappings, selects the glyph for each base-plus-selector pair, and embeds the required outlines. Text layout measures the selected glyph without adding width or letter spacing for the selector, and keeps the pair together during wrapping and truncation. The PDF's `/ToUnicode` map preserves the original IVS for text extraction, including sequences whose glyph matches the plain base character.
+
+### Convert the font
+
+From the application root, convert an IVS-capable font such as IPAmj Mincho:
+
+```sh
+mkdir -p fonts/ivs
+php vendor/tecnickcom/tc-lib-pdf-font/util/convert.php \
+    --outpath=./fonts/ivs/ \
+    --type=TrueTypeUnicode \
+    --flags=32 \
+    --encoding_id=10 \
+    --fonts=/path/to/ipamjm.ttf
+```
+
+Format 14 is read alongside the nominal format 12 map. Fonts converted before the IVS change must be converted again into an empty directory, or after backing up their existing artifacts. The converter refuses to overwrite an existing definition. Keep the generated `.json`, `.ctg.z`, and font program `.z` files together.
+
+### Create a PDF
+
+This example assumes the application root contains `vendor/` and the generated `fonts/ivs/` directory:
+
+```php
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+\define('K_PATH_FONTS', __DIR__ . '/fonts/ivs');
+
+$pdf = new \Com\Tecnick\Pdf\Tcpdf();
+$font = $pdf->font->insert($pdf->pon, 'ipamjm', '', 12, subset: true);
+$pdf->addPage();
+$pdf->page->addContent($font['out']);
+$pdf->page->addContent($pdf->getTextCell(
+    txt: "\u{908A}\u{E0108} \u{908A}\u{E0109}\n\u{658E}\u{E0102} \u{658E}\u{E0103}",
+    posx: 15,
+    posy: 20,
+    width: 180,
+    valign: 'T',
+    halign: 'L',
+));
+\file_put_contents(__DIR__ . '/ivs.pdf', $pdf->getOutPDFString());
+```
+
+The PDF embeds a subset of IPAmj Mincho, including the selected variation glyphs, so the viewer does not need that font installed. Set `subset: false` to embed the full font instead.
+
+### Scope and fallback
+
+- Verification covers all 11 IVS for U+908A and both IVS for U+658E in IPAmj Mincho Ver.006.01, including glyph selection, Unicode mappings, widths, line breaks, and subset/full-font embedding.
+- An unsupported sequence uses the base character's glyph; an isolated selector is not rendered. A font without the required mapping cannot display that variant.
+- A font with variation mappings is limited to 65,535 distinct input characters or sequences per PDF font resource; exceeding the limit throws an exception.
+- This change provides variation-glyph selection rather than general OpenType shaping. The font itself is not bundled with the fork.
 
 ---
 

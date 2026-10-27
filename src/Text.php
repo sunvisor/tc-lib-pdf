@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Com\Tecnick\Pdf;
 
 use Com\Tecnick\Pdf\Exception as PdfException;
+use Com\Tecnick\Pdf\Font\Import\VariationSequences;
 use Com\Tecnick\Pdf\Page\Settings as PageSettings;
 use Com\Tecnick\Unicode\Bidi;
 use Com\Tecnick\Unicode\Data\Constant as UnicodeConstant;
@@ -1649,7 +1650,11 @@ abstract class Text extends \Com\Tecnick\Pdf\Cell
 
         while ($low <= $high) {
             $mid = \intdiv($low + $high, 2);
-            $candidate = \array_slice($ordarr, 0, $mid);
+            $cut = $mid;
+            if ($cut > 0 && VariationSequences::isSelector($ordarr[$cut] ?? -1)) {
+                --$cut;
+            }
+            $candidate = \array_slice($ordarr, 0, $cut);
             if ($mid < $total) {
                 $candidate = \array_merge($candidate, $marker);
             }
@@ -1666,7 +1671,7 @@ abstract class Text extends \Com\Tecnick\Pdf\Cell
             );
 
             if (!$this->textCellLayoutOverflows($candidate_layout, $maxWidth, $maxHeight)) {
-                $best = $mid;
+                $best = $cut;
                 $low = $mid + 1;
             } else {
                 $high = $mid - 1;
@@ -4249,8 +4254,22 @@ abstract class Text extends \Com\Tecnick\Pdf\Cell
 
         $mapped = [];
         $dropped = [];
-        foreach ($ordarr as $ord) {
-            if ($this->font->getGidForOrd($ord) === 0) {
+        $keepSelector = false;
+        foreach ($ordarr as $index => $ord) {
+            if (VariationSequences::isSelector($ord)) {
+                if ($keepSelector) {
+                    $mapped[] = $ord;
+                }
+                $keepSelector = false;
+                continue;
+            }
+            $gid = $this->font->getGidForOrd($ord);
+            $selector = $ordarr[$index + 1] ?? -1;
+            if (VariationSequences::isSelector($selector)) {
+                $gid = $this->font->getGidForVariation($ord, $selector) ?? $gid;
+            }
+            $keepSelector = $gid !== 0;
+            if ($gid === 0) {
                 $dropped[] = \sprintf('U+%04X', $ord);
                 continue;
             }

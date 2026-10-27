@@ -24,6 +24,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class CSSTest extends TestUtil
 {
+    public static function setUpBeforeClass(): void
+    {
+        self::setUpFontsPath();
+    }
+
     /** @throws \Throwable */
     protected function getTestObject(): \Com\Tecnick\Pdf\Tcpdf
     {
